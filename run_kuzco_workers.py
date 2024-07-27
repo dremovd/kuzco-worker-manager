@@ -3,7 +3,11 @@ import subprocess
 import time
 import threading
 import re
+import signal
 from datetime import datetime, timedelta
+
+# Global flag to signal all threads to stop
+stop_flag = threading.Event()
 
 def run_worker(command, worker_id, silent):
     if not silent:
@@ -14,7 +18,7 @@ def run_worker(command, worker_id, silent):
     process = None
     last_inference_time = datetime.now()
     
-    while True:
+    while not stop_flag.is_set():
         if process is None or process.poll() is not None:
             if process is not None:
                 print(f"Worker {worker_id}: Restarting")
@@ -22,9 +26,8 @@ def run_worker(command, worker_id, silent):
             last_inference_time = datetime.now()
 
         try:
-            line = process.stdout.readline()
+            line = process.stdout.readline(timeout=1)  # Use timeout to check stop_flag periodically
             if not line:
-                time.sleep(1)
                 continue
 
             if not silent:
@@ -39,6 +42,8 @@ def run_worker(command, worker_id, silent):
                 process = None
                 last_inference_time = datetime.now()
 
+        except subprocess.TimeoutExpired:
+            continue
         except Exception as e:
             print(f"Worker {worker_id}: Error - {str(e)}. Restarting...")
             if process:
@@ -46,12 +51,23 @@ def run_worker(command, worker_id, silent):
             process = None
             time.sleep(5)  # Wait a bit before restarting to avoid rapid restarts in case of persistent errors
 
+    if process:
+        print(f"Worker {worker_id}: Stopping")
+        process.terminate()
+        process.wait()
+
+def signal_handler(signum, frame):
+    print("\nCtrl+C pressed. Stopping all workers...")
+    stop_flag.set()
+
 def main():
     parser = argparse.ArgumentParser(description="Run Kuzco workers in parallel")
     parser.add_argument("command", help="Kuzco worker command to run")
     parser.add_argument("instances", type=int, help="Number of instances to run in parallel")
     parser.add_argument("--silent", action="store_true", help="Enable silent mode (only output logs about starting/restarting workers)")
     args = parser.parse_args()
+
+    signal.signal(signal.SIGINT, signal_handler)
 
     if not args.silent:
         print(f"Starting {args.instances} workers")
