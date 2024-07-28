@@ -5,9 +5,45 @@ import threading
 import re
 import signal
 import select
+import os
+import psutil
 from datetime import datetime, timedelta
 
 stop_flag = threading.Event()
+
+def terminate_process(process, worker_id):
+    if process is None:
+        return
+
+    print(f"Worker {worker_id}: Forcefully terminating process...")
+    try:
+        parent = psutil.Process(process.pid)
+        children = parent.children(recursive=True)
+        
+        for child in children:
+            child.terminate()
+        parent.terminate()
+
+        gone, alive = psutil.wait_procs(children + [parent], timeout=3)
+        
+        for p in alive:
+            print(f"Worker {worker_id}: Force killing process {p.pid}")
+            p.kill()
+
+    except psutil.NoSuchProcess:
+        print(f"Worker {worker_id}: Process already terminated")
+    except Exception as e:
+        print(f"Worker {worker_id}: Error while terminating process - {str(e)}")
+    
+    # Final check to ensure the process is no longer running
+    try:
+        os.kill(process.pid, 0)
+        print(f"Worker {worker_id}: Process still exists. Force killing...")
+        os.kill(process.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    
+    print(f"Worker {worker_id}: Process termination completed")
 
 def run_worker(command, worker_id, silent):
     if not silent:
@@ -22,6 +58,7 @@ def run_worker(command, worker_id, silent):
         if process is None or process.poll() is not None:
             if process is not None:
                 print(f"Worker {worker_id}: Restarting")
+                terminate_process(process, worker_id)
             process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, universal_newlines=True)
             last_inference_time = datetime.now()
 
@@ -47,27 +84,25 @@ def run_worker(command, worker_id, silent):
                     time.sleep(1)
                     if process.poll() is None:
                         print(f"Worker {worker_id}: Process is still running but unresponsive. Restarting...")
-                        process.terminate()
+                        terminate_process(process, worker_id)
                         process = None
                         last_inference_time = datetime.now()
                 
             if datetime.now() - last_inference_time > timedelta(minutes=5):
                 print(f"Worker {worker_id}: No inference finished for 5 minutes. Restarting...")
-                process.terminate()
+                terminate_process(process, worker_id)
                 process = None
                 last_inference_time = datetime.now()
 
         except Exception as e:
             print(f"Worker {worker_id}: Error - {str(e)}. Restarting...")
-            if process:
-                process.terminate()
+            terminate_process(process, worker_id)
             process = None
             time.sleep(5)  # Wait a bit before restarting to avoid rapid restarts in case of persistent errors
 
     if process:
         print(f"Worker {worker_id}: Stopping")
-        process.terminate()
-        process.wait()
+        terminate_process(process, worker_id)
 
 def signal_handler(signum, frame):
     print("\nCtrl+C pressed. Stopping all workers...")
