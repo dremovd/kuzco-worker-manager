@@ -26,8 +26,8 @@ def run_worker(command, worker_id, silent):
             last_inference_time = datetime.now()
 
         try:
-            # Use select for non-blocking read
-            ready, _, _ = select.select([process.stdout], [], [], 1.0)
+            # Use select for non-blocking read with a timeout
+            ready, _, _ = select.select([process.stdout], [], [], 60.0)  # 60-second timeout
             if ready:
                 line = process.stdout.readline()
                 if not line:
@@ -38,12 +38,24 @@ def run_worker(command, worker_id, silent):
                 
                 if re.search(r'\[.*\]: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \d+ Inference finished from subscription instance\..*\.inference\.', line):
                     last_inference_time = datetime.now()
+            else:
+                # No output for 60 seconds, check if process is still responsive
+                if process.poll() is None:
+                    print(f"Worker {worker_id}: No output for 60 seconds. Checking process...")
+                    # Send a signal to the process to check if it's responsive
+                    process.send_signal(signal.SIGURG)
+                    time.sleep(1)
+                    if process.poll() is None:
+                        print(f"Worker {worker_id}: Process is still running but unresponsive. Restarting...")
+                        process.terminate()
+                        process = None
+                        last_inference_time = datetime.now()
                 
-                if datetime.now() - last_inference_time > timedelta(minutes=5):
-                    print(f"Worker {worker_id}: No inference finished for 5 minutes. Restarting...")
-                    process.terminate()
-                    process = None
-                    last_inference_time = datetime.now()
+            if datetime.now() - last_inference_time > timedelta(minutes=5):
+                print(f"Worker {worker_id}: No inference finished for 5 minutes. Restarting...")
+                process.terminate()
+                process = None
+                last_inference_time = datetime.now()
 
         except Exception as e:
             print(f"Worker {worker_id}: Error - {str(e)}. Restarting...")
