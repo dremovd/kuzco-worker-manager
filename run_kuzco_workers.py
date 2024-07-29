@@ -45,7 +45,7 @@ def terminate_process(process, worker_id):
     
     print(f"Worker {worker_id}: Process termination completed")
 
-def run_worker(command, worker_id, silent):
+def run_worker(command, worker_id, silent, no_inference_timeout):
     if not silent:
         print(f"Starting Worker {worker_id}")
     else:
@@ -88,8 +88,8 @@ def run_worker(command, worker_id, silent):
                         process = None
                         last_inference_time = datetime.now()
                 
-            if datetime.now() - last_inference_time > timedelta(minutes=5):
-                print(f"Worker {worker_id}: No inference finished for 5 minutes. Restarting...")
+            if datetime.now() - last_inference_time > timedelta(minutes=no_inference_timeout):
+                print(f"Worker {worker_id}: No inference finished for {no_inference_timeout} minutes. Restarting...")
                 terminate_process(process, worker_id)
                 process = None
                 last_inference_time = datetime.now()
@@ -113,6 +113,7 @@ def main():
     parser.add_argument("command", help="Kuzco worker command to run")
     parser.add_argument("instances", type=int, help="Number of instances to run in parallel")
     parser.add_argument("--silent", action="store_true", help="Enable silent mode (only output logs about starting/restarting workers)")
+    parser.add_argument("--no-inference-timeout", type=int, default=60, help="Timeout in minutes for no inference before restarting")
     args = parser.parse_args()
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -122,7 +123,7 @@ def main():
 
     threads = []
     for i in range(args.instances):
-        thread = threading.Thread(target=run_worker, args=(args.command, i, args.silent))
+        thread = threading.Thread(target=run_worker, args=(args.command, i, args.silent, args.no_inference_timeout))
         thread.start()
         threads.append(thread)
         time.sleep(1)  # 1-second pause between starting each worker
