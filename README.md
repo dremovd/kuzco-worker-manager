@@ -21,3 +21,12 @@ OR for silent run:
 ```bash
 python run_kuzco_workers.py "kuzco worker start --worker V6hwT4-ptyfw25dcg8JwB --code 53877007-c01b-4389-9b8f-3e6aebe90f2e" 3 --silent
 ```
+
+# Parameters:
+```
+--no-inference-timeout 10
+# This parameter will set timeout for a worker to 10 minutes (default is 60)
+
+--silent
+# This will remove all workers output, which leaves only manager own logs
+```
