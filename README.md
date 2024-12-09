@@ -21,7 +21,9 @@ python3 run_kuzco_workers.py "kuzco worker start --worker V6hwT4-ptyfw25dcg8JwB 
 ```
 
 ```bash
-cmd=
+export cmd=
+```
+```bash
 python run_kuzco_workers.py "${cmd}" 1 --silent
 ```
 
